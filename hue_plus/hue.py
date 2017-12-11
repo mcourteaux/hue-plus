@@ -155,6 +155,8 @@ def main():
     else:
         raise InvalidCommand("No such mode")
 
+    ser.close()
+
 def write_audio(ser, channel, colors, tolerance, value, strips):
     try:
         if value >= tolerance: # Prevent index out of range
@@ -350,7 +352,13 @@ def create_command(ser, channel, colors, mode, direction, option, group, speed):
         "alert": 8
     }
 
-    strips = [0, strips_info(ser, 1)-1, strips_info(ser, 2)-1]
+    if False:
+        print("Aquiring strip info...")
+        strips = [0, strips_info(ser, 1)-1, strips_info(ser, 2)-1]
+        print("Done strip info... %s" % strips)
+    else:
+        strips = [0, 1, 1]
+
     strips[0] = max(strips)
 
     if channel == 0:
@@ -379,11 +387,25 @@ def create_command(ser, channel, colors, mode, direction, option, group, speed):
 
 
 def strips_info(ser, channel):
-    time.sleep(0.2)
+    print("Strip info 1: in_waiting = %d" % ser.in_waiting)
+
+    #time.sleep(0.2)
     out = bytearray.fromhex("8D0" + str(channel))
     ser.write(out)
-    time.sleep(1)
-    out = ser.read(ser.in_waiting).hex()
+    print("Strip info 2: in_waiting = %d" % ser.in_waiting)
+
+    count = 0
+    while ser.in_waiting < 5:
+       print("Strip info 3: in_waiting = %d" % ser.in_waiting)
+       time.sleep(0.001)
+       count = count + 1
+       if count == 1000:
+          init(ser)
+          return strips_info(ser, channel)
+
+    print("Strip info timeout: in_waiting = %d" % ser.in_waiting)
+    out = ser.read(5).hex()
+    print("Strip channel %d readout: %s" % (channel, out))
     if out:
         r = int(out[-1])
     else:
@@ -394,19 +416,25 @@ def strips_info(ser, channel):
 
 
 def init(ser):
-    #C0(ser)
-    # Took out bytearray([70, 0, 192, 0, 0, 0, 255])
-    initial = [bytearray.fromhex("4B" + "00"*124)]
-    for array in initial:
-        ser.write(array)
-        time.sleep(0.2)
-        ser.read(ser.in_waiting)
+    print("Init...")
+    C0(ser)
+    initial = bytearray.fromhex("4B" + "00"*124)
+    print("Writing init...")
+    ser.write(initial)
+
+    print("Waiting for response.")
+    while ser.in_waiting == 0:
+        print("Waiting = %d..." % ser.in_waiting)
+        time.sleep(0.01)
+    print("random byte: %s" % ser.read(ser.in_waiting))
+    print("Done init...")
 
 def C0(ser):
+    print("C0...")
     while True:
         ser.write(bytearray.fromhex("C0"))
         if ser.in_waiting != 0:
-            ser.read()
+            ser.read(ser.in_waiting)
             break
 
 def write(ser, outputs):
@@ -422,9 +450,13 @@ def fixed(ser, gui, channel, color):
     if gui != 0:
         color = picker.pick("Color")
 
+    print("Creating command...")
     command = create_command(ser, channel, [color], "fixed", 0, 0, 0, 2)
+    print("Doing this weird previous thing")
     outputs = previous.get_colors(channel, command)
+    print("Write final command.")
     write(ser, outputs)
+    print("Done")
 
 
 def breathing(ser, gui, channel, color, speed):
